@@ -136,7 +136,7 @@ if __name__ == "__main__":
     songid = eval(songid)
     stream = getStreamKeyFromSongIDEx(s[songid]["SongID"])
     for k,v in stream["result"].iteritems():
-	stream=v
+        stream=v
     s =  'wget --user-agent="%s" --referer=%s --post-data=streamKey=%s -O "%s - %s.mp3" "http://%s/stream.php"' % (_useragent, _referer, stream["streamKey"], s[songid]["ArtistName"], s[songid]["SongName"], stream["ip"])
     p = subprocess.Popen(s, shell=True)
     p.wait()
