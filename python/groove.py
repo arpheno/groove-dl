@@ -9,6 +9,7 @@ import sys
 import os
 import subprocess
 import gzip
+import urllib2,urllib
 if sys.version_info[1] >= 6:  import json
 else: import simplejson as json
 
@@ -101,7 +102,6 @@ def getStreamKeyFromSongIDEx(id):
     conn = httplib.HTTPConnection("grooveshark.com")
     conn.request("POST", "/more.php?" + p["method"], json.JSONEncoder().encode(p), {"User-Agent": _useragent, "Referer": _referer, "Accept-Encoding":"gzip", "Content-Type":"", "Cookie":"PHPSESSID=" + h["session"]})
     j = json.JSONDecoder().decode(gzip.GzipFile(fileobj=(StringIO.StringIO(conn.getresponse().read()))).read())
-    print j
     return j
 
 def header_cb(buf):
@@ -116,6 +116,64 @@ def init():
     res = conn.getresponse()
     cookie = res.getheader("set-cookie").split(";")
     h["session"] = cookie[0][10:]
+
+def query_artist_title(p_artistName, p_songName):
+    
+    """Function to Download one specific Song by the Name of p_songName
+    by one specific Artist by the name of p_artistName"""
+    
+    init()
+    getToken()
+    for result in getSearchResultsEx(p_artistName):
+        if result["SongName"].lower() == p_songName.lower():
+            stream = getStreamKeyFromSongIDEx(result["SongID"])
+            download(stream,result)
+            break  
+    
+    """ If no match for SongName was found in the response to 
+        the ArtistName query, query for the SongName instead and 
+        fuzzy-match against ArtistName. To avoid a dependency the 
+        fuzzy-match Levenshtein library is optional. If it can't be
+        found the function will revert to a string comparsion. """
+    
+    try:
+        import Levenshtein
+        for result in getSearchResultsEx(p_songName):
+            if Levenshtein.ratio(result["ArtistName"].lower().encode('cp437'),p_artistName.lower()) > 0.6:
+                stream = getStreamKeyFromSongIDEx(result["SongID"])
+                download(stream,result)
+                break
+    except ImportError:
+        for result in getSearchResultsEx(p_songName):
+            if result["ArtistName"].lower().encode('cp437')==p_artistName.lower():
+                stream = getStreamKeyFromSongIDEx(result["SongID"])
+                download(stream,result)
+                break
+
+def download(p_stream,p_songInfo):
+
+    """ Function to download a song using a given ip and streamKey
+        and save it to its correct location using the information 
+        about the song in p_songInfo """
+    
+    for k,v in p_stream["result"].iteritems():    #Just a dirty hack, forget about this
+        p_stream=v
+    
+    url = "http://"+p_stream['ip']+"/stream.php"
+    req = urllib2.Request(url,'streamKey='+p_stream['streamKey'])
+    req.add_header('Referer', _referer)
+    req.add_header('User-Agent',_useragent)
+    fd = urllib2.urlopen(req)
+    
+    mp3=""
+    while 1:
+        data=fd.read(1024)
+        if not len(data):
+            break
+        else:
+            mp3+=data
+    with open(p_songInfo["ArtistName"]+" - "+p_songInfo["SongName"]+'.mp3','w') as f:
+        f.write(mp3)
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
@@ -134,9 +192,6 @@ if __name__ == "__main__":
     songid = raw_input("Enter the Song ID you wish to download or (q) to exit: ")
     if songid == "" or songid == "q": exit()
     songid = eval(songid)
-    stream = getStreamKeyFromSongIDEx(s[songid]["SongID"])
-    for k,v in stream["result"].iteritems():
-        stream=v
-    s =  'wget --user-agent="%s" --referer=%s --post-data=streamKey=%s -O "%s - %s.mp3" "http://%s/stream.php"' % (_useragent, _referer, stream["streamKey"], s[songid]["ArtistName"], s[songid]["SongName"], stream["ip"])
-    p = subprocess.Popen(s, shell=True)
-    p.wait()
+    result=s[songid]
+    stream = getStreamKeyFromSongIDEx(result["SongID"])
+    download(stream,result)
